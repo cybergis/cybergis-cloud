@@ -1,0 +1,40 @@
+Region: {REGION}
+Image:
+  Os: {OS}
+HeadNode:
+  InstanceType: {HEAD_NODE_INSTANCE_TYPE}
+  Networking:
+    SubnetId: {SUBNET_ID}
+    AdditionalSecurityGroups:
+      - {SECURITY_GROUP}
+  Ssh:
+    KeyName: {KEY_NAME}
+  CustomActions:
+    OnNodeStart:
+      Script: {HEAD_NODE_PRIO1_SCRIPT_URL}
+    OnNodeConfigured:
+      Script: {HEAD_NODE_PRIO2_SCRIPT_URL}
+Scheduling:
+  Scheduler: slurm
+  SlurmQueues:
+  - Name: queue1
+    ComputeResources:
+    - Name: {SLAVE_NODE_INSTANCE_TYPE_NAME}
+      Instances:
+      - InstanceType: {SLAVE_NODE_INSTANCE_TYPE}
+      MinCount: {SLAVE_NODE_MIN_INSTANCE_COUNT}
+      MaxCount: {SLAVE_NODE_MAX_INSTANCE_COUNT}
+    Networking:
+      SubnetIds:
+      - {SUBNET_ID}
+      AdditionalSecurityGroups:
+      - {SECURITY_GROUP}
+    CustomActions:
+      OnNodeConfigured:
+        Script: {SLAVE_NODE_PRIO2_SCRIPT_URL}
+SharedStorage:
+  - MountDir: /home/ubuntu/compute_shared
+    Name: {FILE_SYSTEM_NAME}
+    StorageType: Efs
+    EfsSettings:
+      FileSystemId: {FILE_SYSTEM_ID}
