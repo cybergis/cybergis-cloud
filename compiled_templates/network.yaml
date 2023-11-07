@@ -1,3 +1,4 @@
+# TODO: Remove EFS from network stack and replace with EBS volumes in ParallelCluster configuration.
 AWSTemplateFormatVersion: 2010-09-09
 Conditions:
   CreateInternetGateway: !Equals

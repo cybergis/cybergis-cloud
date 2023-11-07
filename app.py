@@ -1,17 +1,17 @@
-import asyncio
-from json import loads
-from random import choices
-from threading import Thread
+# TODO: Replace Flask backend with pure JavaScript frontend.
 
+import asyncio
 import boto3
-from dataclasses import dataclass
 from datetime import datetime
-from flask import Flask, request, jsonify
+from flask import Flask, request
+from json import loads
+import os
 from pathlib import Path
 import pcluster.lib as pc
+from random import choices
 from string import ascii_letters, digits
+from threading import Thread
 
-import os
 
 import nest_asyncio
 nest_asyncio.apply()
@@ -28,6 +28,9 @@ def generate_identifier() -> str:
 
 
 def create_session(access_key: str, secret_access_key: str, region: str) -> boto3.Session:
+    """
+    Create boto3 session with user account.
+    """
     try:
         session = boto3.Session(
             aws_access_key_id=access_key,
@@ -41,6 +44,9 @@ def create_session(access_key: str, secret_access_key: str, region: str) -> boto
 
 
 def create_network(availability_zone: str, session: boto3.Session, network_stack_name: str, file_system_name: str):
+    """
+    Create network CloudFormation stack on user account.
+    """
     cloudformation_client = session.client("cloudformation")
 
     try:
@@ -64,10 +70,11 @@ def create_network(availability_zone: str, session: boto3.Session, network_stack
         ]
     )
 
-    return
-
 
 def get_network_details(session: boto3.Session, network_stack_name: str) -> (str, str, str):
+    """
+    Get CloudFormation parameter output after successful network stack creation.
+    """
     while True:
         cloudformation_client = session.client("cloudformation")
         try:
@@ -95,6 +102,10 @@ def get_network_details(session: boto3.Session, network_stack_name: str) -> (str
 
 
 def find_cluster_instance_type(access_key: str, secret_access_key: str, region: str, vcpus: int, ram: float, gpus: int, vram: float):
+    """
+    Find optimal EC2 instance type for user configuration.
+    TODO: Give user multiple instance type options / offer more specific configuration details.
+    """
     try:
         session = boto3.Session(
             aws_access_key_id=access_key,
@@ -296,7 +307,7 @@ def find_cluster_instance_type(access_key: str, secret_access_key: str, region: 
                 raise Exception("Unexpected Error: Found duplicate notebook instance pricing entries.")
             instance_types[instance_name] = instance
 
-    # TODO: handle ties better...
+    # TODO: Handle ties better.
     smallest_cost_type = None
     smallest_cost = None
     for key, value in instance_types.items():
@@ -313,15 +324,18 @@ def find_cluster_instance_type(access_key: str, secret_access_key: str, region: 
 
     instance_type = smallest_cost_type
 
-    print(smallest_cost)
-    print(smallest_cost_type)
-
     return smallest_cost, instance_type
 
 
 async def create_cluster(access_key: str, secret_access_key:str, region: str, session: boto3.Session, identifier: str, public_subnet_id: str, default_security_group: str, file_system_name: str, file_system_id: str, cluster_slave_instance_type: str, cluster_slave_instance_count: int):
+    """
+    Create cluster using ParallelCluster on user account.
+    """
+
     os.environ["AWS_ACCESS_KEY_ID"] = access_key
     os.environ["AWS_SECRET_ACCESS_KEY"] = secret_access_key
+
+    # TODO: Recreate ParallelCluster configuration file with CloudFormation template. This would remove the need for ParallelCluster template files and remove the need for pcluster.lib.
 
     try:
         with open("templates/cluster.txt", "r") as file:
@@ -370,10 +384,12 @@ async def create_cluster(access_key: str, secret_access_key:str, region: str, se
         cluster_name=cluster_name,
         cluster_configuration="compiled_templates/cluster.yaml"
     )
-    return
 
 
 def submit_task(access_key, secret_access_key, region, availability_zone, identifier, cluster_slave_vcpu_amount, cluster_slave_ram_amount, cluster_slave_instance_count):
+    """
+    Asynchronously handle user cluster creation request.
+    """
     _, cluster_slave_instance_type = find_cluster_instance_type(access_key, secret_access_key, region, cluster_slave_vcpu_amount, cluster_slave_ram_amount, 0, 0)
 
     session = create_session(access_key, secret_access_key, region)
@@ -384,15 +400,15 @@ def submit_task(access_key, secret_access_key, region, availability_zone, identi
 
     (public_subnet_id, default_security_group, file_system_id) = get_network_details(session, network_stack_name)
 
-    # asyncio.set_event_loop(asyncio.SelectorEventLoop())
     asyncio.new_event_loop().run_until_complete(create_cluster(access_key, secret_access_key, region, session, identifier, public_subnet_id, default_security_group, file_system_name, file_system_id, cluster_slave_instance_type, cluster_slave_instance_count))
 
 
 @app.route("/submit", methods=["POST"])
 def submit():
+    """
+    Respond to user cluster creation request.
+    """
     identifier = generate_identifier()
-
-    print(request.form)
 
     access_key = request.form["access-key"]
     secret_access_key = request.form["secret-access-key"]
@@ -400,13 +416,13 @@ def submit():
     region = request.form["region"]
     availability_zone = region + request.form["availability-zone"]
 
-    # cluster_slave_instance_type = request.form["cluster-slave-instance-type"]
     cluster_slave_vcpu_amount = int(request.form["cluster-slave-vcpu-amount"])
     cluster_slave_ram_amount = float(request.form["cluster-slave-ram-amount"])
     cluster_slave_instance_count = int(request.form["cluster-slave-instance-count"])
 
+    # Asynchronously handle submissions for quick web response time.
     task = Thread(target=submit_task, kwargs={"access_key": access_key, "secret_access_key": secret_access_key, "region": region, "availability_zone": availability_zone, "identifier": identifier, "cluster_slave_vcpu_amount": cluster_slave_vcpu_amount, "cluster_slave_ram_amount": cluster_slave_ram_amount, "cluster_slave_instance_count": cluster_slave_instance_count})
-    task.start()
+    task.start()  # TODO: Validate if best practice.
 
     cache[identifier] = {"access_key": access_key, "secret_access_key": secret_access_key, "region": region}
 
@@ -415,8 +431,9 @@ def submit():
 
 @app.route("/status", methods=["POST"])
 def status():
-    print(request.form)
-
+    """
+    Get status of cluster creation on user account.
+    """
     network_status = "COULD NOT OBTAIN"
     cluster_status = "COULD NOT OBTAIN"
 
@@ -453,4 +470,3 @@ def status():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-

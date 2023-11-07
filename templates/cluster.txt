@@ -1,3 +1,4 @@
+# TODO: Replace with CloudFormation template. Replace EFS with EBS volume.
 Region: {REGION}
 Image:
   Os: {OS}
