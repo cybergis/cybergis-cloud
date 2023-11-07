@@ -1,6 +1,5 @@
 # CyberGIS Cloud
-
-Various configuration scripts (that must be publicly available) are [here](https://github.com/anuj-p/CyberGIS-cluster-scripts).
+Quickly create a Jupyter notebook environment with access to user-defined cloud resources using your own AWS account.
 
 ## Steps for a User to get Access Keys
 1. Login to AWS.
@@ -12,11 +11,14 @@ Various configuration scripts (that must be publicly available) are [here](https
 7. Click “Create policy”.
 8. Click “JSON”.
 9. Copy and paste the provided permissions policy.
-10. Click “Next” and then “Create policy”.
-11. Go back to your IAM Create user tab, click the refresh icon under “Permission policies” and attach the new policy.
-12. Click “Next” and “Create user”.
-13. Click on your new user and then click “Security credentials”.
-14. Click “Create access key”.
-15. Click “Other”.
-16. Click “Next” and then ”Create access key”.
-17. Copy your access key and secret access key.
+10. Give the policy a name.
+11. Click “Next” and then “Create policy”.
+12. Go back to your IAM Create user tab, click the refresh icon under “Permission policies” and attach the new policy.
+13. Click “Next” and “Create user”.
+14. Click on your new user and then click “Security credentials”.
+15. Click “Create access key”.
+16. Click “Other”.
+17. Click “Next” and then ”Create access key”.
+18. Copy your access key and secret access key.
+
+Various configuration scripts (that must be publicly available) are [here](https://github.com/anuj-p/CyberGIS-cluster-scripts).
