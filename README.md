@@ -21,4 +21,5 @@ Quickly create a Jupyter notebook environment with access to user-defined cloud 
 17. Click “Next” and then ”Create access key”.
 18. Copy your access key and secret access key.
 
+## Public Scripts
 Various configuration scripts (that must be publicly available) are [here](https://github.com/anuj-p/CyberGIS-cluster-scripts).
