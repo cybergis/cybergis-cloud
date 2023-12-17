@@ -458,14 +458,65 @@ def status():
             pass
 
         try:
-            describe_stack_instance_response = cloudformation_client.describe_stacks(
-                StackName=cluster_name
-            )
-            cluster_status = describe_stack_instance_response["Stacks"][0]["StackStatus"].replace("_", " ")
+            try:
+                describe_stack_instance_response = cloudformation_client.describe_stacks(
+                    StackName=cluster_name
+                )
+                cluster_status = describe_stack_instance_response["Stacks"][0]["StackStatus"].replace("_", " ")
+                if cluster_status == "CREATE COMPLETE":
+                    describe_stack_resource_response = cloudformation_client.describe_stack_resource(
+                        StackName=cluster_name,
+                        LogicalResourceId="HeadNode"
+                    )
+                    head_node_id = describe_stack_resource_response["StackResourceDetail"]["PhysicalResourceId"]
+                    ec2_resource = session.resource("ec2")
+                    public_dns_name = ec2_resource.Instance(head_node_id).public_dns_name
+                    if public_dns_name[0:3] != "ec2" or public_dns_name[-len("amazonaws.com"):] != "amazonaws.com":
+                        raise Exception("Unexpected error: Failed to obtain public DNS name of created head node.")
+                    cluster_status += f" (http://{public_dns_name}:8888)"
+            except Exception as error:
+                pass
         except Exception as error:
             pass
+    else:
+        return "<p>Invalid token.</p>", 200
 
     return f"<p>Network Status: {network_status}\n</p><p>Cluster Status: {cluster_status}</p>", 200
+
+
+@app.route("/delete", methods=["POST"])
+def delete():
+    """
+    Delete a cluster on user account.
+    """
+    identifier = request.form["identifier"]
+
+    if identifier in cache:
+        access_key = cache[identifier]["access_key"]
+        secret_access_key = cache[identifier]["secret_access_key"]
+        region = cache[identifier]["region"]
+
+        network_stack_name = "parallelclusternetworking-pub-" + identifier
+        cluster_name = "parallelcluster-" + identifier
+
+        pc.delete_cluster(
+            cluster_name=cluster_name,
+            region=region
+        )
+
+        session = create_session(access_key, secret_access_key, region)
+
+        cloudformation_client = session.client("cloudformation")
+        try:
+            delete_stack_response = cloudformation_client.delete_stack(
+                StackName=network_stack_name
+            )
+        except Exception as error:
+            pass
+    else:
+        return "<p>Invalid token.</p>", 200
+
+    return f"<p>Delete request sent. Check status.</p>", 200
 
 
 if __name__ == "__main__":
