@@ -7,7 +7,6 @@ from flask import Flask, request
 from json import loads
 import os
 from pathlib import Path
-import pcluster.lib as pc
 from random import choices
 from string import ascii_letters, digits
 from threading import Thread
@@ -43,62 +42,52 @@ def create_session(access_key: str, secret_access_key: str, region: str) -> boto
     return session
 
 
-def create_network(availability_zone: str, session: boto3.Session, network_stack_name: str, file_system_name: str):
+def create_cluster_stack(availability_zone: str, session: boto3.Session, cluster_stack_name: str, head_node_instance_type: str, head_node_prio1_script_url: str, compute_node_instance_type: str, compute_node_count: int, compute_node_prio2_script_url: str, shared_storage_size: int):
     """
-    Create network CloudFormation stack on user account.
+    Create cluster CloudFormation stack on user account.
     """
     cloudformation_client = session.client("cloudformation")
 
     try:
-        with open("compiled_templates/network.yaml", "r") as file:
-            network_template = file.read()
+        with open("compiled_templates/cluster.yaml", "r") as file:
+            cluster_template = file.read()
     except Exception as error:
-        raise Exception("Unexpected Error: Failed to read network.yaml.")
+        raise Exception("Unexpected Error: Failed to read cluster.yaml.")
 
     create_stack_response = cloudformation_client.create_stack(
-        StackName=network_stack_name,
-        TemplateBody=network_template,
+        StackName=cluster_stack_name,
+        TemplateBody=cluster_template,
         Parameters=[
-            {
-                "ParameterKey": "FileSystemName",
-                "ParameterValue": file_system_name
-            },
             {
                 "ParameterKey": "AvailabilityZone",
                 "ParameterValue": availability_zone
+            },
+            {
+                "ParameterKey": "HeadNodeInstanceType",
+                "ParameterValue": head_node_instance_type
+            },
+            {
+                "ParameterKey": "HeadNodeOnStartScriptURL",
+                "ParameterValue": head_node_prio1_script_url
+            },
+            {
+                "ParameterKey": "ComputeNodeInstanceType",
+                "ParameterValue": compute_node_instance_type
+            },
+            {
+                "ParameterKey": "ComputeNodeCount",
+                "ParameterValue": compute_node_count
+            },
+            {
+                "ParameterKey": "ComputeNodeOnConfiguredScriptURL",
+                "ParameterValue": compute_node_prio2_script_url
+            },
+            {
+                "ParameterKey": "SharedStorageSize",
+                "ParameterValue": shared_storage_size
             }
         ]
     )
-
-
-def get_network_details(session: boto3.Session, network_stack_name: str) -> (str, str, str):
-    """
-    Get CloudFormation parameter output after successful network stack creation.
-    """
-    while True:
-        cloudformation_client = session.client("cloudformation")
-        try:
-            describe_stack_instance_response = cloudformation_client.describe_stacks(
-                StackName=network_stack_name
-            )
-            if describe_stack_instance_response["Stacks"][0]["StackStatus"] == "CREATE_COMPLETE":
-                outputs = describe_stack_instance_response["Stacks"][0]["Outputs"]
-                for output in outputs:
-                    if "PublicSubnetId" == output["OutputKey"]:
-                        public_subnet_id = output["OutputValue"]
-                    elif "DefaultSecurityGroup" == output["OutputKey"]:
-                        default_security_group = output["OutputValue"]
-                    elif "FileSystemId" == output["OutputKey"]:
-                        file_system_id = output["OutputValue"]
-                break
-            elif describe_stack_instance_response["Stacks"][0]["StackStatus"] == "CREATE_IN_PROGRESS":
-                pass
-            else:
-                raise Exception("Unexpected error: Network stack status was not recognized.")
-        except Exception as error:
-            raise Exception("Unexpected error: Network stack status could not be obtained.")
-
-    return (public_subnet_id, default_security_group, file_system_id)
 
 
 def find_cluster_instance_type(access_key: str, secret_access_key: str, region: str, vcpus: int, ram: float, gpus: int, vram: float):
@@ -327,65 +316,6 @@ def find_cluster_instance_type(access_key: str, secret_access_key: str, region: 
     return smallest_cost, instance_type
 
 
-async def create_cluster(access_key: str, secret_access_key:str, region: str, session: boto3.Session, identifier: str, public_subnet_id: str, default_security_group: str, file_system_name: str, file_system_id: str, cluster_slave_instance_type: str, cluster_slave_instance_count: int):
-    """
-    Create cluster using ParallelCluster on user account.
-    """
-
-    os.environ["AWS_ACCESS_KEY_ID"] = access_key
-    os.environ["AWS_SECRET_ACCESS_KEY"] = secret_access_key
-
-    # TODO: Recreate ParallelCluster configuration file with CloudFormation template. This would remove the need for ParallelCluster template files and remove the need for pcluster.lib.
-
-    try:
-        with open("templates/cluster.txt", "r") as file:
-            CLUSTER_TEMPLATE = file.read()
-    except Exception as error:
-        raise Exception("Unexpected Error: Failed to read cluster.txt.")
-
-    ec2_client = session.client("ec2")
-    KEY_NAME = "parallelclusterkeypair-" + identifier
-    try:
-        ec2_client.create_key_pair(
-            KeyName=KEY_NAME
-        )
-    except:
-        raise Exception("Unexpected error: Failed to create key pair for head node.")
-
-    HEAD_NODE_PRIO1_SCRIPT_URL = "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/head_init.sh"
-    HEAD_NODE_PRIO2_SCRIPT_URL = "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/head_start.sh"
-    SLAVE_NODE_PRIO2_SCRIPT_URL = "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/slave_init.sh"
-
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{REGION}", region)
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{OS}", "ubuntu2004")
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{HEAD_NODE_INSTANCE_TYPE}", "t3a.micro")
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{SUBNET_ID}", public_subnet_id)
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{KEY_NAME}", KEY_NAME)
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{HEAD_NODE_PRIO1_SCRIPT_URL}", HEAD_NODE_PRIO1_SCRIPT_URL)
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{HEAD_NODE_PRIO2_SCRIPT_URL}", HEAD_NODE_PRIO2_SCRIPT_URL)
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{SLAVE_NODE_INSTANCE_TYPE_NAME}", cluster_slave_instance_type.replace(".", ""))
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{SLAVE_NODE_INSTANCE_TYPE}", cluster_slave_instance_type)
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{SLAVE_NODE_MIN_INSTANCE_COUNT}", str(cluster_slave_instance_count))
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{SLAVE_NODE_MAX_INSTANCE_COUNT}", str(cluster_slave_instance_count))
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{SLAVE_NODE_PRIO2_SCRIPT_URL}", SLAVE_NODE_PRIO2_SCRIPT_URL)
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{FILE_SYSTEM_NAME}", file_system_name)
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{FILE_SYSTEM_ID}", file_system_id)
-    CLUSTER_TEMPLATE = CLUSTER_TEMPLATE.replace("{SECURITY_GROUP}", default_security_group)
-
-    Path("compiled_templates").mkdir(exist_ok=True)
-    try:
-        with open("compiled_templates/cluster.yaml", "w") as file:
-            file.write(CLUSTER_TEMPLATE)
-    except Exception as e:
-        raise Exception("Unexpected Error: Failed to write cluster template.")
-
-    cluster_name = "parallelcluster-" + identifier
-    pc.create_cluster(
-        cluster_name=cluster_name,
-        cluster_configuration="compiled_templates/cluster.yaml"
-    )
-
-
 def submit_task(access_key, secret_access_key, region, availability_zone, identifier, cluster_slave_vcpu_amount, cluster_slave_ram_amount, cluster_slave_instance_count):
     """
     Asynchronously handle user cluster creation request.
@@ -394,13 +324,9 @@ def submit_task(access_key, secret_access_key, region, availability_zone, identi
 
     session = create_session(access_key, secret_access_key, region)
 
-    network_stack_name = "parallelclusternetworking-pub-" + identifier
-    file_system_name = "pcfs-" + identifier
-    create_network(availability_zone, session, network_stack_name, file_system_name)
+    cluster_stack_name = "cybergis-" + identifier
 
-    (public_subnet_id, default_security_group, file_system_id) = get_network_details(session, network_stack_name)
-
-    asyncio.new_event_loop().run_until_complete(create_cluster(access_key, secret_access_key, region, session, identifier, public_subnet_id, default_security_group, file_system_name, file_system_id, cluster_slave_instance_type, cluster_slave_instance_count))
+    create_cluster_stack(availability_zone, session, cluster_stack_name, "t2.micro", "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/head_init.sh", cluster_slave_instance_type, 1, "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/slave_init.sh", 10)
 
 
 @app.route("/submit", methods=["POST"])
@@ -434,7 +360,6 @@ def status():
     """
     Get status of cluster creation on user account.
     """
-    network_status = "COULD NOT OBTAIN"
     cluster_status = "COULD NOT OBTAIN"
 
     identifier = request.form["identifier"]
@@ -443,19 +368,11 @@ def status():
         secret_access_key = cache[identifier]["secret_access_key"]
         region = cache[identifier]["region"]
 
-        network_stack_name = "parallelclusternetworking-pub-" + identifier
-        cluster_name = "parallelcluster-" + identifier
+        cluster_name = "c-cybergis-" + identifier
 
         session = create_session(access_key, secret_access_key, region)
 
         cloudformation_client = session.client("cloudformation")
-        try:
-            describe_stack_instance_response = cloudformation_client.describe_stacks(
-                StackName=network_stack_name
-            )
-            network_status = describe_stack_instance_response["Stacks"][0]["StackStatus"].replace("_", " ")
-        except Exception as error:
-            pass
 
         try:
             try:
@@ -481,7 +398,7 @@ def status():
     else:
         return "<p>Invalid token.</p>", 200
 
-    return f"<p>Network Status: {network_status}\n</p><p>Cluster Status: {cluster_status}</p>", 200
+    return f"<p>Cluster Status: {cluster_status}</p>", 200
 
 
 @app.route("/delete", methods=["POST"])
@@ -496,20 +413,14 @@ def delete():
         secret_access_key = cache[identifier]["secret_access_key"]
         region = cache[identifier]["region"]
 
-        network_stack_name = "parallelclusternetworking-pub-" + identifier
-        cluster_name = "parallelcluster-" + identifier
-
-        pc.delete_cluster(
-            cluster_name=cluster_name,
-            region=region
-        )
+        cluster_stack_name = "cybergis-" + identifier
 
         session = create_session(access_key, secret_access_key, region)
 
         cloudformation_client = session.client("cloudformation")
         try:
             delete_stack_response = cloudformation_client.delete_stack(
-                StackName=network_stack_name
+                StackName=cluster_stack_name
             )
         except Exception as error:
             pass
