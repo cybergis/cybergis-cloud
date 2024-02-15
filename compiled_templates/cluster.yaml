@@ -70,6 +70,12 @@ Parameters:
       is left blank)
     Default: 10.0.0.0/16
     Type: String
+
+  ManagedPolicy:
+    Description: >-
+      The managed policy ARN that ParallelCluster will use.
+    Default: 'arn:aws:iam::aws:policy/AdministratorAccess'
+    Type: String
   
   HeadNodeInstanceType:
     Description: >-
@@ -211,19 +217,7 @@ Resources:
   KeyPair:
     Type: AWS::EC2::KeyPair
     Properties:
-      KeyName: CyberGIS_KeyPair
-
-  HeadNodePolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-        - Effect: Allow
-          Action:
-          - 'kms:GenerateDataKeyWithoutPlaintext'
-          - 'kms:CreateGrant'
-          Resource: "*"
+      KeyName: !Sub '${AWS::StackName}-kp'
 
   SharedVolume:
     Type: AWS::EC2::Volume
@@ -232,23 +226,32 @@ Resources:
       Encrypted: true
       Size: !Ref SharedStorageSize
   
-  ParallelClusterProviderPolicy:
-    Type: AWS::IAM::ManagedPolicy
+  ParallelClusterRole:
+    Type: AWS::IAM::Role
     Properties:
-      PolicyDocument:
+      AssumeRolePolicyDocument:
         Version: "2012-10-17"
-        Statement:
-        - Effect: Allow
-          Action:
-          - 'iam:AttachRolePolicy'
-          - 'iam:DetachRolePolicy'
-          Resource: "*"
+        Statement: 
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+                - ec2.amazonaws.com
+                - lambda.amazonaws.com
+                - spotfleet.amazonaws.com
+                - batch.amazonaws.com
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole 
+      ManagedPolicyArns: 
+        - !Ref ManagedPolicy
+      RoleName: !Sub '${AWS::StackName}-role'
 
   ParallelClusterProvider:
     Type: AWS::CloudFormation::Stack
     Properties:
       Parameters:
-        AdditionalIamPolicies: !Ref ParallelClusterProviderPolicy
+        CustomLambdaRole: !GetAtt ParallelClusterRole.Arn
       TemplateURL: !Sub
         - https://${AWS::Region}-aws-parallelcluster.s3.${AWS::Region}.${AWS::URLSuffix}/parallelcluster/${Version}/templates/custom_resource/cluster.yaml
         - { Version: 3.7.0 }
@@ -273,12 +276,11 @@ Resources:
           LocalStorage:
             RootVolume:
               Encrypted: true
-          Iam:
-            AdditionalIamPolicies:
-              - Policy: !Ref HeadNodePolicy
           CustomActions:
             OnNodeStart:
               Script: !Ref HeadNodeOnStartScriptURL
+          Iam:
+            InstanceRole: !GetAtt ParallelClusterRole.Arn
         Scheduling:
           Scheduler: slurm
           SlurmQueues:
@@ -301,9 +303,14 @@ Resources:
             CustomActions:
               OnNodeConfigured:
                 Script: !Ref ComputeNodeOnConfiguredScriptURL
+            Iam:
+              InstanceRole: !GetAtt ParallelClusterRole.Arn
         SharedStorage:
         - MountDir: /home/ubuntu/compute_shared
-          Name: cybergis-shared-volume
+          Name: !Sub '${AWS::StackName}-vol'
           StorageType: Ebs
           EbsSettings:
             VolumeId: !Ref SharedVolume
+        Iam:
+          Roles:
+            LambdaFunctionsRole: !GetAtt ParallelClusterRole.Arn

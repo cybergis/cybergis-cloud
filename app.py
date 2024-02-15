@@ -1,19 +1,12 @@
 # TODO: Replace Flask backend with pure JavaScript frontend.
 
-import asyncio
 import boto3
 from datetime import datetime
 from flask import Flask, request
 from json import loads
-import os
-from pathlib import Path
 from random import choices
 from string import ascii_letters, digits
 from threading import Thread
-
-
-import nest_asyncio
-nest_asyncio.apply()
 
 
 app = Flask(__name__)
@@ -76,7 +69,7 @@ def create_cluster_stack(availability_zone: str, session: boto3.Session, cluster
             },
             {
                 "ParameterKey": "ComputeNodeCount",
-                "ParameterValue": compute_node_count
+                "ParameterValue": str(compute_node_count)
             },
             {
                 "ParameterKey": "ComputeNodeOnConfiguredScriptURL",
@@ -84,9 +77,14 @@ def create_cluster_stack(availability_zone: str, session: boto3.Session, cluster
             },
             {
                 "ParameterKey": "SharedStorageSize",
-                "ParameterValue": shared_storage_size
+                "ParameterValue": str(shared_storage_size)
             }
-        ]
+        ],
+        Capabilities=[
+            "CAPABILITY_NAMED_IAM",
+            "CAPABILITY_AUTO_EXPAND"
+        ],
+        OnFailure="DELETE"
     )
 
 
@@ -191,6 +189,11 @@ def find_cluster_instance_type(access_key: str, secret_access_key: str, region: 
                         "Type": "TERM_MATCH",
                         "Value": "64-bit"
                     },
+                    {
+                        "Field": "marketoption",
+                        "Type": "TERM_MATCH",
+                        "Value": "OnDemand"
+                    }
                 ]
             )
             cluster_products += products_response["PriceList"]
@@ -233,6 +236,11 @@ def find_cluster_instance_type(access_key: str, secret_access_key: str, region: 
                             "Type": "TERM_MATCH",
                             "Value": "64-bit"
                         },
+                        {
+                            "Field": "marketoption",
+                            "Type": "TERM_MATCH",
+                            "Value": "OnDemand"
+                        }
                     ],
                     NextToken=products_response["NextToken"]
                 )
@@ -321,12 +329,12 @@ def submit_task(access_key, secret_access_key, region, availability_zone, identi
     Asynchronously handle user cluster creation request.
     """
     _, cluster_slave_instance_type = find_cluster_instance_type(access_key, secret_access_key, region, cluster_slave_vcpu_amount, cluster_slave_ram_amount, 0, 0)
-
+    
     session = create_session(access_key, secret_access_key, region)
 
     cluster_stack_name = "cybergis-" + identifier
 
-    create_cluster_stack(availability_zone, session, cluster_stack_name, "t2.micro", "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/head_init.sh", cluster_slave_instance_type, 1, "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/slave_init.sh", 10)
+    create_cluster_stack(availability_zone, session, cluster_stack_name, "t3a.medium", "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/head_init.sh", cluster_slave_instance_type, cluster_slave_instance_count, "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/slave_init.sh", 10)
 
 
 @app.route("/submit", methods=["POST"])
@@ -431,4 +439,4 @@ def delete():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=500)
