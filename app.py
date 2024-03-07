@@ -1,22 +1,25 @@
-# TODO: Replace Flask backend with pure JavaScript frontend.
+# TODO: Move most AWS-related endpoints with pure JavaScript on website frontend.
 
+import asyncio
 import boto3
 from datetime import datetime
-from flask import Flask, request
+from quart import make_response, Quart, request, websocket
+from quart_cors import cors
 from json import loads
 from random import choices
 from string import ascii_letters, digits
 from threading import Thread
 
 
-app = Flask(__name__)
+app = Quart(__name__)
+app = cors(app)
 
 
 cache = {}
 
 
 def generate_identifier() -> str:
-    return "".join(choices(ascii_letters + digits, k=8)) + "-" + datetime.now().strftime("%Y%m%d%H%M%S")
+    return "".join(choices(ascii_letters + digits, k=6)) + datetime.now().strftime("%m%d%H%M%S")
 
 
 def create_session(access_key: str, secret_access_key: str, region: str) -> boto3.Session:
@@ -337,40 +340,97 @@ def submit_task(access_key, secret_access_key, region, availability_zone, identi
     create_cluster_stack(availability_zone, session, cluster_stack_name, "t3a.medium", "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/head_init.sh", cluster_slave_instance_type, cluster_slave_instance_count, "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/slave_init.sh", 10)
 
 
+def get_status(access_key, secret_access_key, region, stack_name):
+    session = create_session(access_key, secret_access_key, region)
+
+    cloudformation_client = session.client("cloudformation")
+
+    try:
+        try:
+            describe_stack_instance_response = cloudformation_client.describe_stacks(
+                StackName=stack_name
+            )
+            cluster_status = describe_stack_instance_response["Stacks"][0]["StackStatus"]
+            return cluster_status
+        except Exception as error:
+            pass
+    except Exception as error:
+        pass
+
+    return "COULD_NOT_OBTAIN"
+
+
+def rename_status(stack_status):
+    if stack_status == "CREATE_IN_PROGRESS":
+        return "creation in progress"
+    elif stack_status == "CREATE_FAILED":
+        return "creation failed"
+    elif stack_status == "CREATE_COMPLETE":
+        return "created successfully"
+    elif stack_status == "ROLLBACK_IN_PROGRESS":
+        return "failed to create and is rolling back"
+    elif stack_status == "ROLLBACK_FAILED":
+        return "failed to rollback"
+    elif stack_status == "ROLLBACK_COMPLETE":
+        return "rolled back successfully"
+    elif stack_status == "DELETE_IN_PROGRESS":
+        return "deletion in progress"
+    elif stack_status == "DELETE_FAILED":
+        return "deletion failed"
+    elif stack_status == "DELETE_COMPLETE":
+        return "deleted successfully"
+    elif stack_status == "COULD_NOT_OBTAIN":
+        return "status could not be obtained"
+    else:
+        return "has unknown status"
+
+
 @app.route("/submit", methods=["POST"])
-def submit():
+async def submit():
     """
     Respond to user cluster creation request.
     """
     identifier = generate_identifier()
 
-    access_key = request.form["access-key"]
-    secret_access_key = request.form["secret-access-key"]
+    form = await request.form
 
-    region = request.form["region"]
-    availability_zone = region + request.form["availability-zone"]
+    access_key = form["access-key"]
+    secret_access_key = form["secret-access-key"]
 
-    cluster_slave_vcpu_amount = int(request.form["cluster-slave-vcpu-amount"])
-    cluster_slave_ram_amount = float(request.form["cluster-slave-ram-amount"])
-    cluster_slave_instance_count = int(request.form["cluster-slave-instance-count"])
+    region = form["region"]
+    availability_zone = region + form["availability-zone"]
+
+    cluster_slave_vcpu_amount = int(form["cluster-slave-vcpu-amount"])
+    cluster_slave_ram_amount = float(form["cluster-slave-ram-amount"])
+    cluster_slave_instance_count = int(form["cluster-slave-instance-count"])
 
     # Asynchronously handle submissions for quick web response time.
     task = Thread(target=submit_task, kwargs={"access_key": access_key, "secret_access_key": secret_access_key, "region": region, "availability_zone": availability_zone, "identifier": identifier, "cluster_slave_vcpu_amount": cluster_slave_vcpu_amount, "cluster_slave_ram_amount": cluster_slave_ram_amount, "cluster_slave_instance_count": cluster_slave_instance_count})
     task.start()  # TODO: Validate if best practice.
 
-    cache[identifier] = {"access_key": access_key, "secret_access_key": secret_access_key, "region": region}
+    cache_status = {
+        "main": "not started",
+        "provider": "not started",
+        "cluster": "not started",
+        "compute_fleet": "not started",
+        "url": "n/a",
+        "delete": False
+    }
+    cache[identifier] = {"access_key": access_key, "secret_access_key": secret_access_key, "region": region, "status": cache_status}
 
-    return f"Token: {identifier}", 200
+    return await make_response(f"Token: {identifier}")
 
 
 @app.route("/status", methods=["POST"])
-def status():
+async def status():
     """
     Get status of cluster creation on user account.
     """
     cluster_status = "COULD NOT OBTAIN"
 
-    identifier = request.form["identifier"]
+    form = await request.form
+
+    identifier = form["identifier"]
     if identifier in cache:
         access_key = cache[identifier]["access_key"]
         secret_access_key = cache[identifier]["secret_access_key"]
@@ -404,17 +464,109 @@ def status():
         except Exception as error:
             pass
     else:
-        return "<p>Invalid token.</p>", 200
+        return await make_response("<p>Invalid token.</p>")
 
-    return f"<p>Cluster Status: {cluster_status}</p>", 200
+    return await make_response(f"<p>Cluster Status: {cluster_status}</p>")
+
+
+@app.websocket("/status/<identifier>")
+async def status_ws(identifier):
+    """
+    Get status of cluster creation on user account.
+    """
+
+    while True:
+        if identifier in cache:
+            access_key = cache[identifier]["access_key"]
+            secret_access_key = cache[identifier]["secret_access_key"]
+            region = cache[identifier]["region"]
+
+            main_name = f"cybergis-{identifier}"
+            provider_name = f"cybergis-{identifier}-ParallelClusterProvider-"
+            cluster_name = f"c-cybergis-{identifier}"
+            compute_fleet_name = f"c-cybergis-{identifier}-ComputeFleetQueuesNestedStackQueuesNestedStackResource"
+
+            main_status = rename_status(get_status(access_key, secret_access_key, region, main_name))
+            if main_status == "status could not be obtained" and cache[identifier]["status"]["main"] == "not started" and cache[identifier]["status"]["delete"] == False:
+                main_status = "not started"
+            elif main_status == "status could not be obtained" and cache[identifier]["status"]["delete"] == True:
+                main_status = "deleted successfully"
+            if "delet" in main_status or ("roll" in main_status and "back" in main_status):
+                cache[identifier]["status"]["delete"] = True
+            if main_status != cache[identifier]["status"]["main"]:
+                cache[identifier]["status"]["main"] = main_status
+                await websocket.send(f"Main stack {main_status}.")
+                if main_status == "deleted successfully":
+                    await websocket.close(1000)
+                    break
+
+            provider_status = rename_status(get_status(access_key, secret_access_key, region, provider_name))
+            if provider_status == "status could not be obtained" and cache[identifier]["status"]["provider"] == "not started" and cache[identifier]["status"]["delete"] == False:
+                provider_status = "not started"
+            elif provider_status == "status could not be obtained" and cache[identifier]["status"]["provider"] == True:
+                provider_status = "deleted successfully"
+            if "delet" in provider_status or ("roll" in provider_status and "back" in provider_status):
+                cache[identifier]["status"]["delete"] = True
+            if provider_status != cache[identifier]["status"]["provider"]:
+                cache[identifier]["status"]["provider"] = provider_status
+                await websocket.send(f"Provider stack {provider_status}.")
+
+            cluster_status = rename_status(get_status(access_key, secret_access_key, region, cluster_name))
+            if cluster_status == "status could not be obtained" and cache[identifier]["status"]["cluster"] == "not started" and cache[identifier]["status"]["delete"] == False:
+                cluster_status = "not started"
+            elif cluster_status == "status could not be obtained" and cache[identifier]["status"]["cluster"] == True:
+                cluster_status = "deleted successfully"
+            if "delet" in cluster_status or ("roll" in cluster_status and "back" in cluster_status):
+                cache[identifier]["status"]["delete"] = True
+            if cluster_status != cache[identifier]["status"]["cluster"]:
+                cache[identifier]["status"]["cluster"] = cluster_status
+                await websocket.send(f"Cluster stack {cluster_status}.")
+            if cluster_status == "created successfully" and cache[identifier]["status"]["url"] == "n/a":
+                session = create_session(access_key, secret_access_key, region)
+                cloudformation_client = session.client("cloudformation")
+                try:
+                    describe_stack_resource_response = cloudformation_client.describe_stack_resource(
+                        StackName=cluster_name,
+                        LogicalResourceId="HeadNode"
+                    )
+                    head_node_id = describe_stack_resource_response["StackResourceDetail"]["PhysicalResourceId"]
+                    ec2_resource = session.resource("ec2")
+                    public_dns_name = ec2_resource.Instance(head_node_id).public_dns_name
+                    if public_dns_name[0:3] != "ec2" or public_dns_name[-len("amazonaws.com"):] != "amazonaws.com":
+                        raise Exception("Unexpected error: Failed to obtain public DNS name of created head node.")
+                    notebook_url = f"http://{public_dns_name}:8888"
+                    cache[identifier]["status"]["url"] = notebook_url
+                    await websocket.send(f"Notebook URL is {notebook_url}.")
+                except Exception as error:
+                    pass
+
+            compute_fleet_status = rename_status(get_status(access_key, secret_access_key, region, compute_fleet_name))
+            if compute_fleet_status == "status could not be obtained" and cache[identifier]["status"]["compute_fleet"] == "not started" and cache[identifier]["status"]["delete"] == False:
+                compute_fleet_status = "not started"
+            elif compute_fleet_status == "status could not be obtained" and cache[identifier]["status"]["compute_fleet"] == True:
+                compute_fleet_status = "deleted successfully"
+            if "delet" in compute_fleet_status or ("roll" in compute_fleet_status and "back" in compute_fleet_status):
+                cache[identifier]["status"]["delete"] = True
+            if compute_fleet_status != cache[identifier]["status"]["compute_fleet"]:
+                cache[identifier]["status"]["compute_fleet"] = compute_fleet_status
+                await websocket.send(f"Compute fleet stack {compute_fleet_status}.")
+
+        else:
+            await websocket.send(f"User token is invalid.")
+            await websocket.close(1000)
+            break
+
+        await asyncio.sleep(15)
 
 
 @app.route("/delete", methods=["POST"])
-def delete():
+async def delete():
     """
     Delete a cluster on user account.
     """
-    identifier = request.form["identifier"]
+    form = await request.form
+
+    identifier = form["identifier"]
 
     if identifier in cache:
         access_key = cache[identifier]["access_key"]
@@ -430,13 +582,15 @@ def delete():
             delete_stack_response = cloudformation_client.delete_stack(
                 StackName=cluster_stack_name
             )
+            cache[identifier]["status"]["delete"] = True
         except Exception as error:
             pass
-    else:
-        return "<p>Invalid token.</p>", 200
 
-    return f"<p>Delete request sent. Check status.</p>", 200
+    else:
+        return await make_response("<p>Invalid token.</p>")
+
+    return await make_response("<p>Delete request sent. Check status.</p>")
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=500)
+    app.run(host="0.0.0.0", port=500, ssl_context=("midware.crt", "midware.key"))

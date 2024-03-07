@@ -1,0 +1,22 @@
+<html>
+  <body>
+    <input id="token" type="text">
+    <button>Send</button>
+    <ul></ul>
+    <script type="text/javascript">
+      var button = document.getElementsByTagName("button")[0];
+      button.onclick = function() {
+        const token = document.getElementById("token").value;
+        button.disabled = true;
+        var ws = new WebSocket("wss://midware.cigi.illinois.edu:500/status/" + token);
+        ws.onmessage = function(event) {
+          var messages_dom = document.getElementsByTagName("ul")[0];
+          var message_dom = document.createElement("li");
+          var content_dom = document.createTextNode(event.data);
+          message_dom.appendChild(content_dom);
+          messages_dom.appendChild(message_dom);
+        };
+      };
+    </script>
+  </body>
+</html>

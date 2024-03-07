@@ -1,0 +1,21 @@
+<html>
+    <body>
+        <input id="token" type="text">
+        <span id="status"></span>
+        <script>
+            setInterval(() => {
+                const token = document.getElementById("token").value;
+                let formData = new FormData();
+                formData.append("token", token);
+                fetch("https://midware.cigi.illinois.edu:500/status", {
+                    method: "POST",
+                    body: formData
+                })
+                .then((response) => response.text())
+                .then((text) => {
+                    document.getElementById("status").innerHTML = text;
+                });
+            }, 15000);
+        </script>
+    </body>
+</html>
