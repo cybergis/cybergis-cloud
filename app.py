@@ -95,6 +95,7 @@ def find_cluster_instance_type(access_key: str, secret_access_key: str, region: 
     """
     Find optimal EC2 instance type for user configuration.
     TODO: Give user multiple instance type options / offer more specific configuration details.
+    TODO: Do some cleanup here.
     """
     try:
         session = boto3.Session(
@@ -481,10 +482,23 @@ async def status_ws(identifier):
             secret_access_key = cache[identifier]["secret_access_key"]
             region = cache[identifier]["region"]
 
+            session = create_session(access_key, secret_access_key, region)
+            cloudformation_resource = session.resource("cloudformation")
+
             main_name = f"cybergis-{identifier}"
             provider_name = f"cybergis-{identifier}-ParallelClusterProvider-"
             cluster_name = f"c-cybergis-{identifier}"
             compute_fleet_name = f"c-cybergis-{identifier}-ComputeFleetQueuesNestedStackQueuesNestedStackResource"
+            stacks = [stack.name for stack in cloudformation_resource.stacks.all()]
+            # TODO: Do some minor optimization/cleanup here.
+            for stack in stacks:
+                if stack.startswith(provider_name):
+                    provider_name = stack
+                    break
+            for stack in stacks:
+                if stack.startswith(compute_fleet_name):
+                    compute_fleet_name = stack
+                    break
 
             main_status = rename_status(get_status(access_key, secret_access_key, region, main_name))
             if main_status == "status could not be obtained" and cache[identifier]["status"]["main"] == "not started" and cache[identifier]["status"]["delete"] == False:
@@ -503,7 +517,7 @@ async def status_ws(identifier):
             provider_status = rename_status(get_status(access_key, secret_access_key, region, provider_name))
             if provider_status == "status could not be obtained" and cache[identifier]["status"]["provider"] == "not started" and cache[identifier]["status"]["delete"] == False:
                 provider_status = "not started"
-            elif provider_status == "status could not be obtained" and cache[identifier]["status"]["provider"] == True:
+            elif provider_status == "status could not be obtained" and cache[identifier]["status"]["delete"] == True:
                 provider_status = "deleted successfully"
             if "delet" in provider_status or ("roll" in provider_status and "back" in provider_status):
                 cache[identifier]["status"]["delete"] = True
@@ -514,7 +528,7 @@ async def status_ws(identifier):
             cluster_status = rename_status(get_status(access_key, secret_access_key, region, cluster_name))
             if cluster_status == "status could not be obtained" and cache[identifier]["status"]["cluster"] == "not started" and cache[identifier]["status"]["delete"] == False:
                 cluster_status = "not started"
-            elif cluster_status == "status could not be obtained" and cache[identifier]["status"]["cluster"] == True:
+            elif cluster_status == "status could not be obtained" and cache[identifier]["status"]["delete"] == True:
                 cluster_status = "deleted successfully"
             if "delet" in cluster_status or ("roll" in cluster_status and "back" in cluster_status):
                 cache[identifier]["status"]["delete"] = True
@@ -522,7 +536,6 @@ async def status_ws(identifier):
                 cache[identifier]["status"]["cluster"] = cluster_status
                 await websocket.send(f"Cluster stack {cluster_status}.")
             if cluster_status == "created successfully" and cache[identifier]["status"]["url"] == "n/a":
-                session = create_session(access_key, secret_access_key, region)
                 cloudformation_client = session.client("cloudformation")
                 try:
                     describe_stack_resource_response = cloudformation_client.describe_stack_resource(
@@ -543,7 +556,7 @@ async def status_ws(identifier):
             compute_fleet_status = rename_status(get_status(access_key, secret_access_key, region, compute_fleet_name))
             if compute_fleet_status == "status could not be obtained" and cache[identifier]["status"]["compute_fleet"] == "not started" and cache[identifier]["status"]["delete"] == False:
                 compute_fleet_status = "not started"
-            elif compute_fleet_status == "status could not be obtained" and cache[identifier]["status"]["compute_fleet"] == True:
+            elif compute_fleet_status == "status could not be obtained" and cache[identifier]["status"]["delete"] == True:
                 compute_fleet_status = "deleted successfully"
             if "delet" in compute_fleet_status or ("roll" in compute_fleet_status and "back" in compute_fleet_status):
                 cache[identifier]["status"]["delete"] = True
