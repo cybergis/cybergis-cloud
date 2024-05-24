@@ -28,11 +28,22 @@
     </form>
     <iframe name="delete-output" id="delete-output"></iframe>
     <h2>Cluster Status</h2>
-    <form action="https://midware.cigi.illinois.edu:500/status" method="post" target="status-output">
-        <label for="identifier">Token:</label><br>
-        <input type="text" id="identifier" name="identifier" value="lI4tShgq-20230928072801"><br>
-        <br>
-        <input type="submit" value="Submit">
-    </form>
-    <iframe name="status-output" id="status-output"></iframe>
+    <input id="cloud-token" type="text">
+    <button id="cloud-button" onclick="get_status()">Submit</button>
+    <ul id="cloud-list"></ul>
+    <script type="text/javascript">
+      function get_status() {
+        var button = document.getElementById("cloud-button");
+        const token = document.getElementById("cloud-token").value;
+        button.disabled = true;
+        var ws = new WebSocket("wss://midware.cigi.illinois.edu:500/status/" + token);
+        ws.onmessage = function(event) {
+          var messages_dom = document.getElementById("cloud-list");
+          var message_dom = document.createElement("li");
+          var content_dom = document.createTextNode(event.data);
+          message_dom.appendChild(content_dom);
+          messages_dom.appendChild(message_dom);
+        };
+      };
+    </script>
 </html>
