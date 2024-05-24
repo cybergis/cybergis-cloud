@@ -86,13 +86,13 @@ Parameters:
   HeadNodeOnStartScriptURL:
     Description: >-
       The URL of the script to run when the head node starts.
-    Default: https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/head_init.sh
+    Default: https://raw.githubusercontent.com/cybergis/cybergis-cloud/main/scripts/head_start.sh
     Type: String
 
   HeadNodeOnConfiguredScriptURL:
     Description: >-
       The URL of the script to run when the head node is configured.
-    Default: https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/head_start.sh
+    Default: https://raw.githubusercontent.com/cybergis/cybergis-cloud/main/scripts/head_configured.sh
     Type: String
   
   ComputeNodeInstanceType:
@@ -110,7 +110,7 @@ Parameters:
   ComputeNodeOnConfiguredScriptURL:
     Description: >-
       The URL of the script to run when the compute node is configured.
-    Default: https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/slave_init.sh
+    Default: https://raw.githubusercontent.com/cybergis/cybergis-cloud/main/scripts/slave_configured.sh
     Type: String
 
   SharedStorageSize:
