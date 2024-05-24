@@ -21,3 +21,5 @@ Quickly create a Jupyter notebook environment with access to user-defined cloud 
 17. Click “Next” and then ”Create access key”.
 18. Copy your access key and secret access key.
 
+## Testing
+In order to test, first clone this repository and navigate to the directory containing the Dockerfile. Build the Dockerfile from `docker build -t cybergis .`. Then, run `docker run -it --rm -v ${PWD}:/root cybergis`. In `index.html`, all instances of `https://midware.cigi.illinois.edu:500` and `wss://midware.cigi.illinois.edu:500` should be replaced with `http://localhost:500` and `ws://localhost:500` respectively. Furthermore, the provided `ssl_context` parameter must be removed from the `app.run` function at the bottom of `app.py`. Start the webserver with `python3 app.py` and then open `index.html`.
