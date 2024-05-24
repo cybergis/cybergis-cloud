@@ -38,7 +38,7 @@ def create_session(access_key: str, secret_access_key: str, region: str) -> boto
     return session
 
 
-def create_cluster_stack(availability_zone: str, session: boto3.Session, cluster_stack_name: str, head_node_instance_type: str, head_node_prio1_script_url: str, compute_node_instance_type: str, compute_node_count: int, compute_node_prio2_script_url: str, shared_storage_size: int):
+def create_cluster_stack(availability_zone: str, session: boto3.Session, cluster_stack_name: str, head_node_instance_type: str, head_node_start_script_url: str, compute_node_instance_type: str, compute_node_count: int, compute_node_configured_script_url: str, shared_storage_size: int):
     """
     Create cluster CloudFormation stack on user account.
     """
@@ -64,7 +64,7 @@ def create_cluster_stack(availability_zone: str, session: boto3.Session, cluster
             },
             {
                 "ParameterKey": "HeadNodeOnStartScriptURL",
-                "ParameterValue": head_node_prio1_script_url
+                "ParameterValue": head_node_start_script_url
             },
             {
                 "ParameterKey": "ComputeNodeInstanceType",
@@ -76,7 +76,7 @@ def create_cluster_stack(availability_zone: str, session: boto3.Session, cluster
             },
             {
                 "ParameterKey": "ComputeNodeOnConfiguredScriptURL",
-                "ParameterValue": compute_node_prio2_script_url
+                "ParameterValue": compute_node_configured_script_url
             },
             {
                 "ParameterKey": "SharedStorageSize",
@@ -338,7 +338,7 @@ def submit_task(access_key, secret_access_key, region, availability_zone, identi
 
     cluster_stack_name = "cybergis-" + identifier
 
-    create_cluster_stack(availability_zone, session, cluster_stack_name, "t3a.medium", "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/head_init.sh", cluster_slave_instance_type, cluster_slave_instance_count, "https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/slave_init.sh", 10)
+    create_cluster_stack(availability_zone, session, cluster_stack_name, "t3.medium", "https://raw.githubusercontent.com/cybergis/cybergis-cloud/main/scripts/head_start.sh", cluster_slave_instance_type, cluster_slave_instance_count, "https://raw.githubusercontent.com/cybergis/cybergis-cloud/main/scripts/slave_configured.sh", 64)
 
 
 def get_status(access_key, secret_access_key, region, stack_name):
