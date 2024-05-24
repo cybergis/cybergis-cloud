@@ -2,12 +2,12 @@
 
 # PREPARE HEAD NODE
 apt install subversion -y
-sudo -Hiu ubuntu git clone https://github.com/anuj-p/CyberGIS-cluster-scripts.git /home/ubuntu/scripts
+sudo -Hiu ubuntu git clone https://github.com/cybergis/cybergis-cloud.git /home/ubuntu/scripts
 sudo -Hiu ubuntu mkdir -p /home/ubuntu/.ipython
 sudo -Hiu ubuntu mv /home/ubuntu/scripts/profile_slurm /home/ubuntu/.ipython
 
-sudo -Hiu ubuntu curl -o /home/ubuntu/default.ipynb https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/default.ipynb
-sudo -Hiu ubuntu curl -o /home/ubuntu/start.sh https://raw.githubusercontent.com/anuj-p/CyberGIS-cluster-scripts/main/head_start.sh
+sudo -Hiu ubuntu mv /home/ubuntu/scripts/default.ipynb /home/ubuntu/default.ipynb
+sudo -Hiu ubuntu mv https://raw.githubusercontent.com/cybergis/cybergis-cloud/main/scripts/head_configured.sh /home/ubuntu/start.sh
 chmod +x /home/ubuntu/start.sh
 
 apt install python3-mpi4py -y
