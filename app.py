@@ -11,17 +11,22 @@ from string import ascii_letters, digits
 from threading import Thread
 
 
-app = Quart(__name__)
+app = Quart(__name__) # Quart is very similar to Flask
 app = cors(app)
 
-
+# the cache holds important user information that lets us manage aspects of their AWS account
 cache = {}
 
 
+# we create a unique identifier for our users
+# currently this identifier is given back to the user to manage themselves
+# TODO: store the generated value in a cookie for users 
+# TODO: it is worthwhile to redo this
 def generate_identifier() -> str:
     return "".join(choices(ascii_letters + digits, k=6)) + datetime.now().strftime("%m%d%H%M%S")
 
 
+# opens a session for the AWS API
 def create_session(access_key: str, secret_access_key: str, region: str) -> boto3.Session:
     """
     Create boto3 session with user account.
@@ -38,6 +43,7 @@ def create_session(access_key: str, secret_access_key: str, region: str) -> boto
     return session
 
 
+# attempts to create the cluster through a CloudFormation stack
 def create_cluster_stack(availability_zone: str, session: boto3.Session, cluster_stack_name: str, head_node_instance_type: str, head_node_start_script_url: str, compute_node_instance_type: str, compute_node_count: int, compute_node_configured_script_url: str, shared_storage_size: int):
     """
     Create cluster CloudFormation stack on user account.
@@ -91,6 +97,9 @@ def create_cluster_stack(availability_zone: str, session: boto3.Session, cluster
     )
 
 
+# finds the cheapest cluster instance type for a user's hardware configuration
+# having more configuration available to end users would be ideal
+# TODO: create test cases
 def find_cluster_instance_type(access_key: str, secret_access_key: str, region: str, vcpus: int, ram: float, gpus: int, vram: float):
     """
     Find optimal EC2 instance type for user configuration.
@@ -328,7 +337,8 @@ def find_cluster_instance_type(access_key: str, secret_access_key: str, region: 
     return smallest_cost, instance_type
 
 
-def submit_task(access_key, secret_access_key, region, availability_zone, identifier, cluster_slave_vcpu_amount, cluster_slave_ram_amount, cluster_slave_instance_count):
+# handles a request to create the cluster
+def submit_task(access_key: str, secret_access_key: str, region: str, availability_zone: str, identifier: str, cluster_slave_vcpu_amount: int, cluster_slave_ram_amount: float, cluster_slave_instance_count: int):
     """
     Asynchronously handle user cluster creation request.
     """
@@ -341,6 +351,8 @@ def submit_task(access_key, secret_access_key, region, availability_zone, identi
     create_cluster_stack(availability_zone, session, cluster_stack_name, "t3.medium", "https://raw.githubusercontent.com/cybergis/cybergis-cloud/main/scripts/head_start.sh", cluster_slave_instance_type, cluster_slave_instance_count, "https://raw.githubusercontent.com/cybergis/cybergis-cloud/main/scripts/slave_configured.sh", 64)
 
 
+# gets the current status of the CloudFormation stack (this is important for determining whether the creation process was successful or not)
+# TODO: this should be moved to JS
 def get_status(access_key, secret_access_key, region, stack_name):
     session = create_session(access_key, secret_access_key, region)
 
@@ -361,6 +373,7 @@ def get_status(access_key, secret_access_key, region, stack_name):
     return "COULD_NOT_OBTAIN"
 
 
+# handles various types of CloudFormation statuses to create text that users will see
 def rename_status(stack_status):
     if stack_status == "CREATE_IN_PROGRESS":
         return "creation in progress"
@@ -386,6 +399,8 @@ def rename_status(stack_status):
         return "has unknown status"
 
 
+# API endpoint for submitting a cluster creation request
+# TODO: should be moved to JS
 @app.route("/submit", methods=["POST"])
 async def submit():
     """
@@ -422,6 +437,8 @@ async def submit():
     return await make_response(f"Token: {identifier}")
 
 
+# API endpoint for getting cluster status
+# TODO: should be moved to JS
 @app.route("/status", methods=["POST"])
 async def status():
     """
@@ -470,6 +487,11 @@ async def status():
     return await make_response(f"<p>Cluster Status: {cluster_status}</p>")
 
 
+# gets the current status as a websocket
+# this approach is ideal moving forward
+# whenever a user sends a request, we should create a websocket log to handle/manipulate any errors for them to view
+# TODO: handle all errors and info through this websocket
+# somewhat similar to the regular status 
 @app.websocket("/status/<identifier>")
 async def status_ws(identifier):
     """
@@ -572,6 +594,8 @@ async def status_ws(identifier):
         await asyncio.sleep(15)
 
 
+# API endpoint for cluster deletion
+# TODO: move to JS
 @app.route("/delete", methods=["POST"])
 async def delete():
     """
@@ -606,4 +630,4 @@ async def delete():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=500, ssl_context=("midware.crt", "midware.key"))
+    app.run(host="0.0.0.0", port=500, ssl_context=("midware.crt", "midware.key")) # runs the API on port 500 with the following SSL files in current dir
